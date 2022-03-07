@@ -1,8 +1,8 @@
-import requests
 import time
-import tldextract
-
 from functools import partial
+
+import requests
+import tldextract
 from parsel.selector import Selector
 from selenium import webdriver
 from selenium.common.exceptions import WebDriverException
@@ -24,21 +24,23 @@ class Session(requests.Session):
     Some useful helper methods and object wrappings have been added.
     """
 
-    def __init__(self, webdriver_path, browser, default_timeout=5, webdriver_options={}):
+    def __init__(
+        self, webdriver_path, browser, default_timeout=5, webdriver_options=None
+    ):
         super(Session, self).__init__()
+        if webdriver_options is None:
+            webdriver_options = {}
         self.webdriver_path = webdriver_path
         self.default_timeout = default_timeout
         self.webdriver_options = webdriver_options
         self._driver = None
         self._last_requests_url = None
 
-        if browser == 'phantomjs':
-            self._driver_initializer = self._start_phantomjs_browser
-        elif browser == 'chrome':
+        if browser == "chrome":
             self._driver_initializer = self._start_chrome_browser
         else:
             raise ValueError(
-                'Invalid Argument: browser must be chrome or phantomjs, not: "{}"'.format(browser)
+                'Invalid Argument: browser must be chrome, not: "{}"'.format(browser)
             )
 
     @property
@@ -47,54 +49,32 @@ class Session(requests.Session):
             self._driver = self._driver_initializer()
         return self._driver
 
-    def _start_phantomjs_browser(self):
-        # Add headers to driver
-        for key, value in self.headers.items():
-            # Manually setting Accept-Encoding to anything breaks it for some reason, so we skip it
-            if key == 'Accept-Encoding':
-                continue
-
-            webdriver.DesiredCapabilities.PHANTOMJS[
-                'phantomjs.page.customHeaders.{}'.format(key)] = value
-
-        # Set browser options
-        service_args = ['--load-images=no', '--disk-cache=true']
-
-        # Add proxies to driver
-        if self.proxies:
-            session_proxy = self.proxies['https'] or self.proxies['http']
-            proxy_user_and_pass = session_proxy.split('@')[0].split('://')[1]
-            proxy_ip_address = session_proxy.split('@')[1]
-            service_args.append('--proxy=' + proxy_ip_address)
-            service_args.append('--proxy-auth=' + proxy_user_and_pass)
-
-        # Create driver process
-        return RequestiumPhantomJS(executable_path=self.webdriver_path,
-                                   service_log_path="/tmp/ghostdriver.log",
-                                   service_args=service_args,
-                                   default_timeout=self.default_timeout)
-
     def _start_chrome_browser(self):
         # TODO transfer of proxies and headers: Not supported by chromedriver atm.
         # Choosing not to use plug-ins for this as I don't want to worry about the
         # extra dependencies and plug-ins don't work in headless mode. :-(
         chrome_options = webdriver.chrome.options.Options()
 
-        if 'binary_location' in self.webdriver_options:
-            chrome_options.binary_location = self.webdriver_options['binary_location']
+        if "binary_location" in self.webdriver_options:
+            chrome_options.binary_location = self.webdriver_options["binary_location"]
 
-        if 'arguments' in self.webdriver_options:
-            if isinstance(self.webdriver_options['arguments'], list):
-                for arg in self.webdriver_options['arguments']:
+        if "arguments" in self.webdriver_options:
+            if isinstance(self.webdriver_options["arguments"], list):
+                for arg in self.webdriver_options["arguments"]:
                     chrome_options.add_argument(arg)
             else:
-                raise Exception('A list is needed to use \'arguments\' option. Found {}'.format(
-                    type(self.webdriver_options['arguments'])))
+                raise Exception(
+                    "A list is needed to use 'arguments' option. Found {}".format(
+                        type(self.webdriver_options["arguments"])
+                    )
+                )
 
         # Create driver process
-        return RequestiumChrome(self.webdriver_path,
-                                options=chrome_options,
-                                default_timeout=self.default_timeout)
+        return RequestiumChrome(
+            self.webdriver_path,
+            options=chrome_options,
+            default_timeout=self.default_timeout,
+        )
 
     def transfer_session_cookies_to_driver(self, domain=None):
         """Copies the Session's cookies into the webdriver
@@ -106,20 +86,29 @@ class Session(requests.Session):
         if not domain and self._last_requests_url:
             domain = tldextract.extract(self._last_requests_url).registered_domain
         elif not domain and not self._last_requests_url:
-            raise Exception('Trying to transfer cookies to selenium without specifying a domain '
-                            'and without having visited any page in the current session')
+            raise Exception(
+                "Trying to transfer cookies to selenium without specifying a domain "
+                "and without having visited any page in the current session"
+            )
 
         # Transfer cookies
         for c in [c for c in self.cookies if domain in c.domain]:
-            self.driver.ensure_add_cookie({'name': c.name, 'value': c.value, 'path': c.path,
-                                           'expiry': c.expires, 'domain': c.domain})
+            self.driver.ensure_add_cookie(
+                {
+                    "name": c.name,
+                    "value": c.value,
+                    "path": c.path,
+                    "expiry": c.expires,
+                    "domain": c.domain,
+                }
+            )
 
     def transfer_driver_cookies_to_session(self, copy_user_agent=True):
         if copy_user_agent:
             self.copy_user_agent_from_driver()
 
         for cookie in self.driver.get_cookies():
-            self.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'])
+            self.cookies.set(cookie["name"], cookie["value"], domain=cookie["domain"])
 
     def get(self, *args, **kwargs):
         resp = super(Session, self).get(*args, **kwargs)
@@ -137,7 +126,7 @@ class Session(requests.Session):
         return RequestiumResponse(resp)
 
     def copy_user_agent_from_driver(self):
-        """ Updates requests' session user-agent with the driver's user agent
+        """Updates requests' session user-agent with the driver's user agent
 
         This method will start the browser process if its not already running.
         """
@@ -149,9 +138,11 @@ class RequestiumResponse(object):
     """Adds xpath, css, and regex methods to a normal requests response object"""
 
     def __init__(self, response):
-        self.__class__ = type(response.__class__.__name__,
-                              (self.__class__, response.__class__),
-                              response.__dict__)
+        self.__class__ = type(
+            response.__class__.__name__,
+            (self.__class__, response.__class__),
+            response.__dict__,
+        )
         self._response = response
         self._selector = None
 
@@ -179,17 +170,11 @@ class DriverMixin(object):
 
     This is a temporary solution.
 
-    When Chrome headless is finally stable, and we therefore stop using Phantomjs,
-    it will make sense to stop having this as a mixin and just add these methods to
-    the RequestiumChrome class, as it will be our only driver class.
-
-    (We plan to stop supporting Phantomjs because the developer stated he won't be
-    maintaining the project any longer)
     """
 
     def __init__(self, *args, **kwargs):
-        self.default_timeout = kwargs['default_timeout']
-        del kwargs['default_timeout']
+        self.default_timeout = kwargs["default_timeout"]
+        del kwargs["default_timeout"]
         super(DriverMixin, self).__init__(*args, **kwargs)
 
     def ensure_add_cookie(self, cookie, override_domain=None):
@@ -217,32 +202,33 @@ class DriverMixin(object):
         was to not do anything, which was very hard to debug.
         """
         if override_domain:
-            cookie['domain'] = override_domain
+            cookie["domain"] = override_domain
 
-        cookie_domain = cookie['domain'] if cookie['domain'][0] != '.' else cookie['domain'][1:]
+        cookie_domain = (
+            cookie["domain"] if cookie["domain"][0] != "." else cookie["domain"][1:]
+        )
         try:
             browser_domain = tldextract.extract(self.current_url).fqdn
         except AttributeError:
-            browser_domain = ''
+            browser_domain = ""
         if cookie_domain not in browser_domain:
             # TODO Check if hardcoding 'http' causes trouble
             # TODO Consider using a new proxy for this next request to not cause an anomalous
             #      request. This way their server sees our ip address as continuously having the
             #      same cookies and not have a request mid-session with no cookies
-            self.get('http://' + cookie_domain)
+            self.get("http://" + cookie_domain)
 
-        # Fixes phantomjs bug, all domains must start with a period
-        if self.name == "phantomjs":
-            cookie['domain'] = '.' + cookie['domain']
         self.add_cookie(cookie)
 
         # If we fail adding the cookie, retry with a more permissive domain
         if not self.is_cookie_in_driver(cookie):
-            cookie['domain'] = tldextract.extract(cookie['domain']).registered_domain
+            cookie["domain"] = tldextract.extract(cookie["domain"]).registered_domain
             self.add_cookie(cookie)
             if not self.is_cookie_in_driver(cookie):
                 raise WebDriverException(
-                    "Couldn't add the following cookie to the webdriver\n{}\n".format(cookie)
+                    "Couldn't add the following cookie to the webdriver\n{}\n".format(
+                        cookie
+                    )
                 )
 
     def is_cookie_in_driver(self, cookie):
@@ -252,36 +238,41 @@ class DriverMixin(object):
         We are a bit lenient when comparing domains.
         """
         for driver_cookie in self.get_cookies():
-            name_matches = cookie['name'] == driver_cookie['name']
-            value_matches = cookie['value'] == driver_cookie['value']
-            domain_matches = driver_cookie['domain'] in (cookie['domain'], '.' + cookie['domain'])
+            name_matches = cookie["name"] == driver_cookie["name"]
+            value_matches = cookie["value"] == driver_cookie["value"]
+            domain_matches = driver_cookie["domain"] in (
+                cookie["domain"],
+                "." + cookie["domain"],
+            )
             if name_matches and value_matches and domain_matches:
                 return True
         return False
 
     def ensure_element_by_id(self, selector, state="present", timeout=None):
-        return self.ensure_element('id', selector, state, timeout)
+        return self.ensure_element("id", selector, state, timeout)
 
     def ensure_element_by_name(self, selector, state="present", timeout=None):
-        return self.ensure_element('name', selector, state, timeout)
+        return self.ensure_element("name", selector, state, timeout)
 
     def ensure_element_by_xpath(self, selector, state="present", timeout=None):
-        return self.ensure_element('xpath', selector, state, timeout)
+        return self.ensure_element("xpath", selector, state, timeout)
 
     def ensure_element_by_link_text(self, selector, state="present", timeout=None):
-        return self.ensure_element('link_text', selector, state, timeout)
+        return self.ensure_element("link_text", selector, state, timeout)
 
-    def ensure_element_by_partial_link_text(self, selector, state="present", timeout=None):
-        return self.ensure_element('partial_link_text', selector, state, timeout)
+    def ensure_element_by_partial_link_text(
+        self, selector, state="present", timeout=None
+    ):
+        return self.ensure_element("partial_link_text", selector, state, timeout)
 
     def ensure_element_by_tag_name(self, selector, state="present", timeout=None):
-        return self.ensure_element('tag_name', selector, state, timeout)
+        return self.ensure_element("tag_name", selector, state, timeout)
 
     def ensure_element_by_class_name(self, selector, state="present", timeout=None):
-        return self.ensure_element('class_name', selector, state, timeout)
+        return self.ensure_element("class_name", selector, state, timeout)
 
     def ensure_element_by_css_selector(self, selector, state="present", timeout=None):
-        return self.ensure_element('css_selector', selector, state, timeout)
+        return self.ensure_element("css_selector", selector, state, timeout)
 
     def ensure_element(self, locator, selector, state="present", timeout=None):
         """This method allows us to wait till an element appears or disappears in the browser
@@ -302,31 +293,33 @@ class DriverMixin(object):
 
         More info at: http://selenium-python.readthedocs.io/waits.html
         """
-        locators = {'id': By.ID,
-                    'name': By.NAME,
-                    'xpath': By.XPATH,
-                    'link_text': By.LINK_TEXT,
-                    'partial_link_text': By.PARTIAL_LINK_TEXT,
-                    'tag_name': By.TAG_NAME,
-                    'class_name': By.CLASS_NAME,
-                    'css_selector': By.CSS_SELECTOR}
+        locators = {
+            "id": By.ID,
+            "name": By.NAME,
+            "xpath": By.XPATH,
+            "link_text": By.LINK_TEXT,
+            "partial_link_text": By.PARTIAL_LINK_TEXT,
+            "tag_name": By.TAG_NAME,
+            "class_name": By.CLASS_NAME,
+            "css_selector": By.CSS_SELECTOR,
+        }
         locator = locators[locator]
         if not timeout:
             timeout = self.default_timeout
 
-        if state == 'visible':
+        if state == "visible":
             element = WebDriverWait(self, timeout).until(
                 EC.visibility_of_element_located((locator, selector))
             )
-        elif state == 'clickable':
+        elif state == "clickable":
             element = WebDriverWait(self, timeout).until(
                 EC.element_to_be_clickable((locator, selector))
             )
-        elif state == 'present':
+        elif state == "present":
             element = WebDriverWait(self, timeout).until(
                 EC.presence_of_element_located((locator, selector))
             )
-        elif state == 'invisible':
+        elif state == "invisible":
             WebDriverWait(self, timeout).until(
                 EC.invisibility_of_element_located((locator, selector))
             )
@@ -384,10 +377,12 @@ def _ensure_click(self):
     #   - It is outside of the viewport
     #   - It is under a banner or toolbar
     # This script solves both cases
-    script = ("var viewPortHeight = Math.max("
-              "document.documentElement.clientHeight, window.innerHeight || 0);"
-              "var elementTop = arguments[0].getBoundingClientRect().top;"
-              "window.scrollBy(0, elementTop-(viewPortHeight/2));")
+    script = (
+        "var viewPortHeight = Math.max("
+        "document.documentElement.clientHeight, window.innerHeight || 0);"
+        "var elementTop = arguments[0].getBoundingClientRect().top;"
+        "window.scrollBy(0, elementTop-(viewPortHeight/2));"
+    )
     self.parent.execute_script(script, self)  # parent = the webdriver
 
     for _ in range(10):
@@ -402,10 +397,6 @@ def _ensure_click(self):
             exception_message
         )
     )
-
-
-class RequestiumPhantomJS(DriverMixin, webdriver.PhantomJS):
-    pass
 
 
 class RequestiumChrome(DriverMixin, webdriver.Chrome):
